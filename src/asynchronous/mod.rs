@@ -1,26 +1,24 @@
 use bytes::{BufMut, BytesMut};
 use core::{fmt::Debug, time::Duration};
-use embedded_hal::i2c::SevenBitAddress;
+use embedded_hal_async::i2c::SevenBitAddress;
 
 use crate::Error;
 
 ///
-pub trait SensirionI2c<I2C, A, D> {
+pub trait SensirionI2c<I2C, A, D>
+where
+    I2C: embedded_hal_async::i2c::I2c,
+    D: embedded_hal_async::delay::DelayNs,
+{
     ///
     fn i2c(&mut self) -> &mut I2C;
 
     ///
-    fn address(&mut self) -> A;
+    fn address(&mut self) -> SevenBitAddress;
 
     ///
     fn delay(&mut self) -> &mut D;
-}
 
-impl<I2C, D> dyn SensirionI2c<I2C, SevenBitAddress, D>
-where
-    I2C: embedded_hal_async::i2c::I2c + Debug,
-    D: embedded_hal_async::delay::DelayNs,
-{
     async fn read_command<'a, T: Copy + Into<Duration> + Into<u16> + Debug>(
         &mut self,
         command: T,
@@ -53,7 +51,7 @@ where
                 .collect::<alloc::vec::Vec<_>>()
                 .join(", "),
         );
-        self.delay().delay_ns(delay_duration.as_nanos() as u32);
+        self.delay().delay_ns(delay_duration.as_nanos() as u32).await;
 
         sensirion_i2c::i2c_async::read_words_with_crc(&mut self.i2c(), address, buffer)
             .await
@@ -156,7 +154,7 @@ where
         self.i2c()
             .write(address, &buffer[..])
             .await
-            .map_err(sensirion_i2c::i2c_async::Error::<I2C>::I2cWrite)?;
+            .map_err(sensirion_i2c::i2c::Error::<I2C>::I2cWrite)?;
 
         Ok(())
     }
@@ -164,21 +162,35 @@ where
 
 #[cfg(test)]
 mod tests {
-    use core::ops::AsyncFnOnce;
+    use core::u16;
+    const DEFAULT_BLOCKING_ADDRESS: SevenBitAddress = 4;
+    const MINIMUM_DELAY: u64 = 1;
 
     use super::*;
-    use crate::AddressPin;
-    use embedded_hal_mock::eh1::{delay::NoopDelay, i2c::Transaction};
-    use measurements::{Humidity, Temperature};
+    use alloc::vec::Vec;
+    use assert_matches::assert_matches;
+    use bytes::Buf;
+    use embedded_hal_async::i2c::{ErrorKind, NoAcknowledgeSource};
+    use embedded_hal_mock::eh1::{
+        delay::NoopDelay,
+        i2c::{Mock, Transaction},
+    };
 
     #[derive(Debug, Default)]
-    pub struct TestDriver<I2C, A, D> {
+    pub struct TestDriver<I2C, D>
+    where
+        I2C: embedded_hal_async::i2c::I2c<SevenBitAddress>,
+    {
         i2c: I2C,
-        address: A,
+        address: SevenBitAddress,
         delay: D,
     }
 
-    impl<I2C, D> SensirionI2c<I2C, SevenBitAddress, D> for TestDriver<I2C, SevenBitAddress, D> {
+    impl<I2C, D> SensirionI2c<I2C, SevenBitAddress, D> for TestDriver<I2C, D>
+    where
+        I2C: embedded_hal_async::i2c::I2c,
+        D: embedded_hal_async::delay::DelayNs,
+    {
         fn i2c(&mut self) -> &mut I2C {
             &mut self.i2c
         }
@@ -192,28 +204,41 @@ mod tests {
         }
     }
 
-    fn create_i2c<F>(expectations: &[Transaction], action: F)
-    where
-        F: AsyncFnOnce(
-            TestDriver<
-                &mut embedded_hal_mock::common::Generic<Transaction>,
-                SevenBitAddress,
-                NoopDelay,
-            >,
-        ),
-    {
+    #[derive(Debug, Clone, Copy)]
+    enum Command {
+        CommandOne,
+    }
+
+    impl From<Command> for u16 {
+        fn from(value: Command) -> Self {
+            match value {
+                Command::CommandOne => 0x44,
+            }
+        }
+    }
+
+    impl From<Command> for Duration {
+        fn from(value: Command) -> Self {
+            match value {
+                Command::CommandOne => Duration::from_millis(MINIMUM_DELAY),
+            }
+        }
+    }
+
+    fn create_i2c<T: AsyncFnOnce(TestDriver<&mut Mock, NoopDelay>)>(
+        expectations: &[Transaction],
+        action: T,
+    ) {
         let mut i2c_mock = embedded_hal_mock::eh1::i2c::Mock::new(expectations);
         let test_driver = create_device(&mut i2c_mock);
         futures::executor::block_on(action(test_driver));
         i2c_mock.done();
     }
 
-    fn create_device(
-        i2c: &mut embedded_hal_mock::common::Generic<Transaction>,
-    ) -> TestDriver<&mut embedded_hal_mock::common::Generic<Transaction>, u8, NoopDelay> {
+    fn create_device(i2c: &mut Mock) -> TestDriver<&mut Mock, NoopDelay> {
         TestDriver {
             i2c,
-            address: 0x4,
+            address: DEFAULT_BLOCKING_ADDRESS,
             delay: NoopDelay::default(),
         }
     }
@@ -224,4 +249,296 @@ mod tests {
             log::info!("here {}", test_driver.address);
         });
     }
+
+    #[test]
+    fn test_read_command_success() {
+        let mut response = BytesMut::with_capacity(3);
+        response.put_u16(0x22);
+        response.put_u8(sensirion_i2c::crc8::calculate(&response[0..2]));
+
+        let expectations = [
+            Transaction::write(
+                DEFAULT_BLOCKING_ADDRESS,
+                u16::from(Command::CommandOne).to_be_bytes().to_vec(),
+            ),
+            Transaction::read(DEFAULT_BLOCKING_ADDRESS, response.to_vec()),
+        ];
+
+        create_i2c(
+            &expectations,
+            async |mut test_driver: TestDriver<
+                &mut embedded_hal_mock::common::Generic<Transaction>,
+                NoopDelay,
+            >| {
+                let mut buffer = BytesMut::with_capacity(3);
+                buffer.resize(3, 0);
+                assert!(
+                    test_driver
+                        .read_command(Command::CommandOne, &mut buffer)
+                        .await
+                        .is_ok()
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn test_read_command_fail_crc() {
+        let mut response = BytesMut::with_capacity(3);
+        response.put_u16(0x22);
+        response.put_u8(0);
+
+        let expectations = [
+            Transaction::write(
+                DEFAULT_BLOCKING_ADDRESS,
+                u16::from(Command::CommandOne).to_be_bytes().to_vec(),
+            ),
+            Transaction::read(DEFAULT_BLOCKING_ADDRESS, response.to_vec()),
+        ];
+
+        create_i2c(
+            &expectations,
+            async |mut test_driver: TestDriver<
+                &mut embedded_hal_mock::common::Generic<Transaction>,
+                NoopDelay,
+            >| {
+                let mut buffer = BytesMut::with_capacity(3);
+                buffer.resize(3, 0);
+                assert_matches!(
+                    test_driver.read_command(Command::CommandOne, &mut buffer).await,
+                    Err(Error::Crc)
+                )
+            },
+        );
+    }
+
+    #[test]
+    fn test_read_command_fail_nack() {
+        let mut response = BytesMut::with_capacity(3);
+        response.put_u16(0x22);
+        response.put_u8(0);
+
+        let expectations = [Transaction::write(
+            DEFAULT_BLOCKING_ADDRESS,
+            u16::from(Command::CommandOne).to_be_bytes().to_vec(),
+        )
+        .with_error(ErrorKind::NoAcknowledge(NoAcknowledgeSource::Address))];
+
+        create_i2c(
+            &expectations,
+            async |mut test_driver: TestDriver<
+                &mut embedded_hal_mock::common::Generic<Transaction>,
+                NoopDelay,
+            >| {
+                let mut buffer = BytesMut::with_capacity(3);
+                buffer.resize(3, 0);
+                assert_matches!(
+                    test_driver.read_command(Command::CommandOne, &mut buffer).await,
+                    Err(Error::I2c(ErrorKind::NoAcknowledge(
+                        NoAcknowledgeSource::Address
+                    )))
+                )
+            },
+        );
+    }
+
+    #[test]
+    fn test_read_command_with_args_success() {
+        let mut response = BytesMut::with_capacity(3);
+        response.put_u16(0x22);
+        response.put_u8(sensirion_i2c::crc8::calculate(&response[0..2]));
+
+        let mut expected = BytesMut::with_capacity(4);
+        // command
+        expected.put_u16(Command::CommandOne.into());
+        // args
+        expected.put_u16(0x22);
+        expected.put_u8(sensirion_i2c::crc8::calculate(&&expected[2..4]));
+
+        let expectations = [
+            Transaction::write(DEFAULT_BLOCKING_ADDRESS, expected.to_vec()),
+            Transaction::read(DEFAULT_BLOCKING_ADDRESS, response.to_vec()),
+        ];
+
+        create_i2c(
+            &expectations,
+            async |mut test_driver: TestDriver<
+                &mut embedded_hal_mock::common::Generic<Transaction>,
+                NoopDelay,
+            >| {
+                let mut buffer = BytesMut::with_capacity(3);
+                buffer.resize(3, 0);
+                assert!(
+                    test_driver
+                        .read_command_with_args(
+                            Command::CommandOne,
+                            Some(
+                                &expected[2..4]
+                                    .chunks(2)
+                                    .map(|mut c| c.get_u16())
+                                    .collect::<Vec<u16>>()
+                            ),
+                            &mut buffer
+                        )
+                        .await
+                        .is_ok()
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn test_read_command_with_args_fail_crc() {
+        let mut response = BytesMut::with_capacity(3);
+        response.put_u16(0x22);
+        response.put_u8(0);
+
+        let mut expected = BytesMut::with_capacity(4);
+        // command
+        expected.put_u16(Command::CommandOne.into());
+        // args
+        expected.put_u16(0x22);
+        expected.put_u8(sensirion_i2c::crc8::calculate(&&expected[2..4]));
+
+        let expectations = [
+            Transaction::write(DEFAULT_BLOCKING_ADDRESS, expected.to_vec()),
+            Transaction::read(DEFAULT_BLOCKING_ADDRESS, response.to_vec()),
+        ];
+
+        create_i2c(
+            &expectations,
+            async |mut test_driver: TestDriver<
+                &mut embedded_hal_mock::common::Generic<Transaction>,
+                NoopDelay,
+            >| {
+                let mut buffer = BytesMut::with_capacity(3);
+                buffer.resize(3, 0);
+                assert_matches!(
+                    test_driver.read_command_with_args(
+                        Command::CommandOne,
+                        Some(
+                            &expected[2..4]
+                                .chunks(2)
+                                .map(|mut c| c.get_u16())
+                                .collect::<Vec<u16>>()
+                        ),
+                        &mut buffer
+                    ).await,
+                    Err(Error::Crc)
+                )
+            },
+        );
+    }
+
+    #[test]
+    fn test_read_command_with_args_fail_nack() {
+        let mut expected = BytesMut::with_capacity(4);
+        // command
+        expected.put_u16(Command::CommandOne.into());
+        // args
+        expected.put_u16(0x22);
+        expected.put_u8(sensirion_i2c::crc8::calculate(&&expected[2..4]));
+
+        let expectations = [
+            Transaction::write(DEFAULT_BLOCKING_ADDRESS, expected.to_vec())
+                .with_error(ErrorKind::NoAcknowledge(NoAcknowledgeSource::Address)),
+        ];
+
+        create_i2c(
+            &expectations,
+            async |mut test_driver: TestDriver<
+                &mut embedded_hal_mock::common::Generic<Transaction>,
+                NoopDelay,
+            >| {
+                let mut buffer = BytesMut::with_capacity(3);
+                buffer.resize(3, 0);
+                assert_matches!(
+                    test_driver.read_command_with_args(
+                        Command::CommandOne,
+                        Some(
+                            &expected[2..4]
+                                .chunks(2)
+                                .map(|mut c| c.get_u16())
+                                .collect::<Vec<u16>>()
+                        ),
+                        &mut buffer
+                    ).await,
+                    Err(Error::I2c(ErrorKind::NoAcknowledge(
+                        NoAcknowledgeSource::Address
+                    )))
+                )
+            },
+        );
+    }
+
+    #[test]
+    fn test_write_command_success() {
+        let expectations = [Transaction::write(
+            DEFAULT_BLOCKING_ADDRESS,
+            u16::from(Command::CommandOne).to_be_bytes().to_vec(),
+        )];
+
+        create_i2c(
+            &expectations,
+            async |mut test_driver: TestDriver<
+                &mut embedded_hal_mock::common::Generic<Transaction>,
+                NoopDelay,
+            >| {
+                let mut buffer = BytesMut::with_capacity(3);
+                buffer.resize(3, 0);
+                assert!(test_driver.write_command(Command::CommandOne).await.is_ok());
+            },
+        );
+    }
+
+    #[test]
+    fn test_write_command_fail_nack() {
+        let expectations = [Transaction::write(
+            DEFAULT_BLOCKING_ADDRESS,
+            u16::from(Command::CommandOne).to_be_bytes().to_vec(),
+        )
+        .with_error(ErrorKind::NoAcknowledge(NoAcknowledgeSource::Address))];
+
+        create_i2c(
+            &expectations,
+            async |mut test_driver: TestDriver<
+                &mut embedded_hal_mock::common::Generic<Transaction>,
+                NoopDelay,
+            >| {
+                let mut buffer = BytesMut::with_capacity(3);
+                buffer.resize(3, 0);
+                assert_matches!(
+                    test_driver.write_command(Command::CommandOne).await,
+                    Err(Error::I2c(ErrorKind::NoAcknowledge(
+                        NoAcknowledgeSource::Address
+                    )))
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn test_write_command_fail_other() {
+        let expectations = [Transaction::write(
+            DEFAULT_BLOCKING_ADDRESS,
+            u16::from(Command::CommandOne).to_be_bytes().to_vec(),
+        )
+        .with_error(ErrorKind::Other)];
+
+        create_i2c(
+            &expectations,
+            async |mut test_driver: TestDriver<
+                &mut embedded_hal_mock::common::Generic<Transaction>,
+                NoopDelay,
+            >| {
+                let mut buffer = BytesMut::with_capacity(3);
+                buffer.resize(3, 0);
+                assert_matches!(
+                    test_driver.write_command(Command::CommandOne).await,
+                    Err(Error::I2c(ErrorKind::Other))
+                );
+            },
+        );
+    }
 }
+
