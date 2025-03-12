@@ -2,7 +2,7 @@
 
 This Rust library offers a standardized set of functionalities for developing device drivers for Sensirion I<sup>2</sup>C devices. Built on top of [sensirion-i2c-rs](https://github.com/Sensirion/sensirion-i2c-rs), it simplifies implementation by providing a higher-level interface. By defining specific traits, developers can minimize boilerplate code while enhancing usability.
 
-> ![NOTE]
+> [!NOTE]  
 > Currently, this crate relies on `alloc` and requires an allocator. A `no-alloc` version is in development to eliminate this dependency.
 
 ## Examples Drivers
