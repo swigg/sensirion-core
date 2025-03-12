@@ -83,7 +83,7 @@ where
             &delay_duration,
             self.address(),
             command,
-            u16::from(command_code)
+            command_code
                 .to_be_bytes()
                 .iter()
                 .map(|b| alloc::format!("{:#x?}", b))
@@ -103,7 +103,7 @@ where
             "Read from bus {{address: {:#x?}, command: {:?}[{}], response: [{}]}}",
             self.address(),
             command,
-            u16::from(command_code)
+            command_code
                 .to_be_bytes()
                 .iter()
                 .map(|b| alloc::format!("{:#x?}", b))
@@ -142,7 +142,7 @@ where
             "Writing to bus {{address: {:#x?}, command: {:?}[{}]}}",
             self.address(),
             command,
-            u16::from(command_code)
+            command_code
                 .to_be_bytes()
                 .iter()
                 .map(|b| alloc::format!("{:#x?}", b))
@@ -188,7 +188,7 @@ where
                 "Writing to bus {{address: {:#x?}, command: {:?}[{}], args: [{}]}}",
                 self.address(),
                 command,
-                u16::from(command_code)
+                command_code
                     .to_be_bytes()
                     .iter()
                     .map(|b| alloc::format!("{:#x?}", b))
@@ -206,7 +206,7 @@ where
                 "Writing to bus {{address: {:#x?}, command: {:?}[{}]}}",
                 self.address(),
                 command,
-                u16::from(command_code)
+                command_code
                     .to_be_bytes()
                     .iter()
                     .map(|b| alloc::format!("{:#x?}", b))
@@ -303,7 +303,7 @@ mod tests {
         TestDriver {
             i2c,
             address: DEFAULT_BLOCKING_ADDRESS,
-            delay: NoopDelay::default(),
+            delay: NoopDelay,
         }
     }
 
@@ -421,7 +421,7 @@ mod tests {
         expected.put_u16(Command::CommandOne.into());
         // args
         expected.put_u16(0x22);
-        expected.put_u8(sensirion_i2c::crc8::calculate(&&expected[2..4]));
+        expected.put_u8(sensirion_i2c::crc8::calculate(&expected[2..4]));
 
         let expectations = [
             Transaction::write(DEFAULT_BLOCKING_ADDRESS, expected.to_vec()),
@@ -466,7 +466,7 @@ mod tests {
         expected.put_u16(Command::CommandOne.into());
         // args
         expected.put_u16(0x22);
-        expected.put_u8(sensirion_i2c::crc8::calculate(&&expected[2..4]));
+        expected.put_u8(sensirion_i2c::crc8::calculate(&expected[2..4]));
 
         let expectations = [
             Transaction::write(DEFAULT_BLOCKING_ADDRESS, expected.to_vec()),
@@ -507,7 +507,7 @@ mod tests {
         expected.put_u16(Command::CommandOne.into());
         // args
         expected.put_u16(0x22);
-        expected.put_u8(sensirion_i2c::crc8::calculate(&&expected[2..4]));
+        expected.put_u8(sensirion_i2c::crc8::calculate(&expected[2..4]));
 
         let expectations = [
             Transaction::write(DEFAULT_BLOCKING_ADDRESS, expected.to_vec())
