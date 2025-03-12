@@ -305,6 +305,7 @@ mod tests {
     #[test]
     fn test_new() {
         create_i2c(&[], |test_driver| {
+            #[cfg(feature = "log")]
             log::info!("here {}", test_driver.address);
         });
     }
