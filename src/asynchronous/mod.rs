@@ -4,21 +4,47 @@ use embedded_hal_async::i2c::SevenBitAddress;
 
 use crate::Error;
 
+/// Defines an asynchronous interface for communication with Sensirion I2C sensors.
 ///
+/// This trait encapsulates the necessary methods for interacting with Sensirion
+/// sensors over an I2C bus using asynchronous operations. It provides a standardized
+/// way to read from and write to these sensors, handling low-level communication details
+/// and error management.
 pub trait SensirionI2c<I2C, A, D>
 where
     I2C: embedded_hal_async::i2c::I2c,
     D: embedded_hal_async::delay::DelayNs,
 {
+    /// Returns a mutable reference to the I2C controller.
     ///
+    /// This method provides access to the underlying I2C interface,
+    /// allowing for low-level communication with the device.
     fn i2c(&mut self) -> &mut I2C;
 
+    /// Retrieves the 7-bit I2C address of the device.
     ///
+    /// This method returns the unique address used to communicate
+    /// with the Sensirion sensor on the I2C bus.
     fn address(&mut self) -> SevenBitAddress;
 
+    /// Returns a mutable reference to the delay implementation.
     ///
+    /// This method provides access to the delay mechanism used for
+    /// timing operations in communication with the sensor.
     fn delay(&mut self) -> &mut D;
 
+    /// Reads data from the sensor using a specified command.
+    ///
+    /// This method sends a command to the sensor and reads the response into the provided buffer.
+    ///
+    /// # Arguments
+    ///
+    /// * `command` - The command to send to the sensor.
+    /// * `buffer` - A mutable slice to store the response from the sensor.
+    ///
+    /// # Returns
+    ///
+    /// A result containing a mutable slice with the read data or an error.
     async fn read_command<'a, T: Copy + Into<Duration> + Into<u16> + Debug>(
         &mut self,
         command: T,
@@ -27,6 +53,19 @@ where
         self.read_command_with_args(command, None, buffer).await
     }
 
+    /// Reads data from the sensor using a specified command and optional arguments.
+    ///
+    /// This method sends a command with optional arguments to the sensor and reads the response into the provided buffer.
+    ///
+    /// # Arguments
+    ///
+    /// * `command` - The command to send to the sensor.
+    /// * `args` - Optional arguments to send with the command.
+    /// * `buffer` - A mutable slice to store the response from the sensor.
+    ///
+    /// # Returns
+    ///
+    /// A result containing a mutable slice with the read data or an error.
     async fn read_command_with_args<'a, T: Copy + Into<Duration> + Into<u16> + Debug>(
         &mut self,
         command: T,
@@ -51,7 +90,9 @@ where
                 .collect::<alloc::vec::Vec<_>>()
                 .join(", "),
         );
-        self.delay().delay_ns(delay_duration.as_nanos() as u32).await;
+        self.delay()
+            .delay_ns(delay_duration.as_nanos() as u32)
+            .await;
 
         sensirion_i2c::i2c_async::read_words_with_crc(&mut self.i2c(), address, buffer)
             .await
@@ -78,6 +119,17 @@ where
         Ok(buffer)
     }
 
+    /// Writes a command to the sensor.
+    ///
+    /// This method sends a command to the sensor without any additional arguments.
+    ///
+    /// # Arguments
+    ///
+    /// * `command` - The command to send to the sensor.
+    ///
+    /// # Returns
+    ///
+    /// A result indicating success or an error if the write operation failed.
     async fn write_command<T: Copy + Into<Duration> + Into<u16> + Debug>(
         &mut self,
         command: T,
@@ -103,6 +155,18 @@ where
         Ok(())
     }
 
+    /// Writes a command with optional arguments to the sensor.
+    ///
+    /// This method sends a command along with optional arguments to the sensor.
+    ///
+    /// # Arguments
+    ///
+    /// * `command` - The command to send to the sensor.
+    /// * `args` - Optional arguments to send with the command.
+    ///
+    /// # Returns
+    ///
+    /// A result indicating success or an error if the write operation failed.
     async fn write_command_with_args<T: Copy + Into<Duration> + Into<u16> + Debug>(
         &mut self,
         command: T,
@@ -305,7 +369,9 @@ mod tests {
                 let mut buffer = BytesMut::with_capacity(3);
                 buffer.resize(3, 0);
                 assert_matches!(
-                    test_driver.read_command(Command::CommandOne, &mut buffer).await,
+                    test_driver
+                        .read_command(Command::CommandOne, &mut buffer)
+                        .await,
                     Err(Error::Crc)
                 )
             },
@@ -333,7 +399,9 @@ mod tests {
                 let mut buffer = BytesMut::with_capacity(3);
                 buffer.resize(3, 0);
                 assert_matches!(
-                    test_driver.read_command(Command::CommandOne, &mut buffer).await,
+                    test_driver
+                        .read_command(Command::CommandOne, &mut buffer)
+                        .await,
                     Err(Error::I2c(ErrorKind::NoAcknowledge(
                         NoAcknowledgeSource::Address
                     )))
@@ -414,16 +482,18 @@ mod tests {
                 let mut buffer = BytesMut::with_capacity(3);
                 buffer.resize(3, 0);
                 assert_matches!(
-                    test_driver.read_command_with_args(
-                        Command::CommandOne,
-                        Some(
-                            &expected[2..4]
-                                .chunks(2)
-                                .map(|mut c| c.get_u16())
-                                .collect::<Vec<u16>>()
-                        ),
-                        &mut buffer
-                    ).await,
+                    test_driver
+                        .read_command_with_args(
+                            Command::CommandOne,
+                            Some(
+                                &expected[2..4]
+                                    .chunks(2)
+                                    .map(|mut c| c.get_u16())
+                                    .collect::<Vec<u16>>()
+                            ),
+                            &mut buffer
+                        )
+                        .await,
                     Err(Error::Crc)
                 )
             },
@@ -453,16 +523,18 @@ mod tests {
                 let mut buffer = BytesMut::with_capacity(3);
                 buffer.resize(3, 0);
                 assert_matches!(
-                    test_driver.read_command_with_args(
-                        Command::CommandOne,
-                        Some(
-                            &expected[2..4]
-                                .chunks(2)
-                                .map(|mut c| c.get_u16())
-                                .collect::<Vec<u16>>()
-                        ),
-                        &mut buffer
-                    ).await,
+                    test_driver
+                        .read_command_with_args(
+                            Command::CommandOne,
+                            Some(
+                                &expected[2..4]
+                                    .chunks(2)
+                                    .map(|mut c| c.get_u16())
+                                    .collect::<Vec<u16>>()
+                            ),
+                            &mut buffer
+                        )
+                        .await,
                     Err(Error::I2c(ErrorKind::NoAcknowledge(
                         NoAcknowledgeSource::Address
                     )))
@@ -541,4 +613,3 @@ mod tests {
         );
     }
 }
-

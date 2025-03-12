@@ -4,21 +4,47 @@ use embedded_hal::i2c::SevenBitAddress;
 
 use crate::Error;
 
+/// Defines an blocking interface for communication with Sensirion I2C sensors.
 ///
+/// This trait encapsulates the necessary methods for interacting with Sensirion
+/// sensors over an I2C bus using blocking operations. It provides a standardized
+/// way to read from and write to these sensors, handling low-level communication details
+/// and error management.
 pub trait SensirionI2c<I2C, D>
 where
     I2C: embedded_hal::i2c::I2c,
     D: embedded_hal::delay::DelayNs,
 {
+    /// Returns a mutable reference to the I2C controller.
     ///
+    /// This method provides access to the underlying I2C interface,
+    /// allowing for low-level communication with the device.
     fn i2c(&mut self) -> &mut I2C;
 
+    /// Retrieves the 7-bit I2C address of the device.
     ///
+    /// This method returns the unique address used to communicate
+    /// with the Sensirion sensor on the I2C bus.
     fn address(&mut self) -> SevenBitAddress;
 
+    /// Returns a mutable reference to the delay implementation.
     ///
+    /// This method provides access to the delay mechanism used for
+    /// timing operations in communication with the sensor.
     fn delay(&mut self) -> &mut D;
 
+    /// Reads data from the sensor using a specified command.
+    ///
+    /// This method sends a command to the sensor and reads the response into the provided buffer.
+    ///
+    /// # Arguments
+    ///
+    /// * `command` - The command to send to the sensor.
+    /// * `buffer` - A mutable slice to store the response from the sensor.
+    ///
+    /// # Returns
+    ///
+    /// A result containing a mutable slice with the read data or an error.
     fn read_command<'a, T: Copy + Into<Duration> + Into<u16> + Debug>(
         &mut self,
         command: T,
@@ -27,6 +53,19 @@ where
         self.read_command_with_args(command, None, buffer)
     }
 
+    /// Reads data from the sensor using a specified command and optional arguments.
+    ///
+    /// This method sends a command with optional arguments to the sensor and reads the response into the provided buffer.
+    ///
+    /// # Arguments
+    ///
+    /// * `command` - The command to send to the sensor.
+    /// * `args` - Optional arguments to send with the command.
+    /// * `buffer` - A mutable slice to store the response from the sensor.
+    ///
+    /// # Returns
+    ///
+    /// A result containing a mutable slice with the read data or an error.
     fn read_command_with_args<'a, T: Copy + Into<Duration> + Into<u16> + Debug>(
         &mut self,
         command: T,
@@ -77,6 +116,17 @@ where
         Ok(buffer)
     }
 
+    /// Writes a command to the sensor.
+    ///
+    /// This method sends a command to the sensor without any additional arguments.
+    ///
+    /// # Arguments
+    ///
+    /// * `command` - The command to send to the sensor.
+    ///
+    /// # Returns
+    ///
+    /// A result indicating success or an error if the write operation failed.
     fn write_command<T: Copy + Into<Duration> + Into<u16> + Debug>(
         &mut self,
         command: T,
@@ -101,6 +151,18 @@ where
         Ok(())
     }
 
+    /// Writes a command with optional arguments to the sensor.
+    ///
+    /// This method sends a command along with optional arguments to the sensor.
+    ///
+    /// # Arguments
+    ///
+    /// * `command` - The command to send to the sensor.
+    /// * `args` - Optional arguments to send with the command.
+    ///
+    /// # Returns
+    ///
+    /// A result indicating success or an error if the write operation failed.
     fn write_command_with_args<T: Copy + Into<Duration> + Into<u16> + Debug>(
         &mut self,
         command: T,
