@@ -10,7 +10,7 @@ use crate::Error;
 /// sensors over an I2C bus using asynchronous operations. It provides a standardized
 /// way to read from and write to these sensors, handling low-level communication details
 /// and error management.
-pub trait SensirionI2c<I2C, A, D>
+pub trait SensirionI2c<I2C, D>
 where
     I2C: embedded_hal_async::i2c::I2c,
     D: embedded_hal_async::delay::DelayNs,
@@ -250,7 +250,7 @@ mod tests {
         delay: D,
     }
 
-    impl<I2C, D> SensirionI2c<I2C, SevenBitAddress, D> for TestDriver<I2C, D>
+    impl<I2C, D> SensirionI2c<I2C, D> for TestDriver<I2C, D>
     where
         I2C: embedded_hal_async::i2c::I2c,
         D: embedded_hal_async::delay::DelayNs,
