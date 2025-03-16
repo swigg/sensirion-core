@@ -332,11 +332,9 @@ mod tests {
             >| {
                 let mut buffer = BytesMut::with_capacity(3);
                 buffer.resize(3, 0);
-                assert!(
-                    test_driver
-                        .read_command(Command::CommandOne, &mut buffer)
-                        .is_ok()
-                );
+                assert!(test_driver
+                    .read_command(Command::CommandOne, &mut buffer)
+                    .is_ok());
             },
         );
     }
@@ -427,20 +425,18 @@ mod tests {
             >| {
                 let mut buffer = BytesMut::with_capacity(3);
                 buffer.resize(3, 0);
-                assert!(
-                    test_driver
-                        .read_command_with_args(
-                            Command::CommandOne,
-                            Some(
-                                &expected[2..4]
-                                    .chunks(2)
-                                    .map(|mut c| c.get_u16())
-                                    .collect::<Vec<u16>>()
-                            ),
-                            &mut buffer
-                        )
-                        .is_ok()
-                );
+                assert!(test_driver
+                    .read_command_with_args(
+                        Command::CommandOne,
+                        Some(
+                            &expected[2..4]
+                                .chunks(2)
+                                .map(|mut c| c.get_u16())
+                                .collect::<Vec<u16>>()
+                        ),
+                        &mut buffer
+                    )
+                    .is_ok());
             },
         );
     }
