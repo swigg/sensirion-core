@@ -49,9 +49,9 @@ where
         &'a mut self,
         command: T,
         buffer: &'a mut [u8],
-    ) -> impl core::future::Future<Output = Result<&'a mut [u8], Error<I2C::Error>>> + 'a {async move {
-        self.read_command_with_args(command, None, buffer).await
-    }}
+    ) -> impl core::future::Future<Output = Result<&'a mut [u8], Error<I2C::Error>>> + 'a {
+        async move { self.read_command_with_args(command, None, buffer).await }
+    }
 
     /// Reads data from the sensor using a specified command and optional arguments.
     ///
@@ -71,52 +71,54 @@ where
         command: T,
         args: Option<&'a [u16]>,
         buffer: &'a mut [u8],
-    ) -> impl core::future::Future<Output = Result<&'a mut [u8], Error<I2C::Error>>> + 'a {async move {
-        self.write_command_with_args(command, args).await?;
-        let address = self.address();
+    ) -> impl core::future::Future<Output = Result<&'a mut [u8], Error<I2C::Error>>> + 'a {
+        async move {
+            self.write_command_with_args(command, args).await?;
+            let address = self.address();
 
-        let delay_duration: Duration = command.into();
-        #[cfg(feature = "log")]
-        log::trace!(
-            "Waiting {:?} after sending {{address: {:#x?}, command: {:?}[{}]}}",
-            &delay_duration,
-            self.address(),
-            command,
-            Into::<u16>::into(command)
-                .to_be_bytes()
-                .iter()
-                .map(|b| alloc::format!("{:#x?}", b))
-                .collect::<alloc::vec::Vec<_>>()
-                .join(", "),
-        );
-        self.delay()
-            .delay_ns(delay_duration.as_nanos() as u32)
-            .await;
+            let delay_duration: Duration = command.into();
+            #[cfg(feature = "log")]
+            log::trace!(
+                "Waiting {:?} after sending {{address: {:#x?}, command: {:?}[{}]}}",
+                &delay_duration,
+                self.address(),
+                command,
+                Into::<u16>::into(command)
+                    .to_be_bytes()
+                    .iter()
+                    .map(|b| alloc::format!("{:#x?}", b))
+                    .collect::<alloc::vec::Vec<_>>()
+                    .join(", "),
+            );
+            self.delay()
+                .delay_ns(delay_duration.as_nanos() as u32)
+                .await;
 
-        sensirion_i2c::i2c_async::read_words_with_crc(&mut self.i2c(), address, buffer)
-            .await
-            .map_err(Error::from)?;
+            sensirion_i2c::i2c_async::read_words_with_crc(&mut self.i2c(), address, buffer)
+                .await
+                .map_err(Error::from)?;
 
-        #[cfg(feature = "log")]
-        log::trace!(
-            "Read from bus {{address: {:#x?}, command: {:?}[{}], response: [{}]}}",
-            self.address(),
-            command,
-            Into::<u16>::into(command)
-                .to_be_bytes()
-                .iter()
-                .map(|b| alloc::format!("{:#x?}", b))
-                .collect::<alloc::vec::Vec<_>>()
-                .join(", "),
-            &buffer[..]
-                .iter()
-                .map(|b| alloc::format!("{:#x?}", b))
-                .collect::<alloc::vec::Vec<_>>()
-                .join(", "),
-        );
+            #[cfg(feature = "log")]
+            log::trace!(
+                "Read from bus {{address: {:#x?}, command: {:?}[{}], response: [{}]}}",
+                self.address(),
+                command,
+                Into::<u16>::into(command)
+                    .to_be_bytes()
+                    .iter()
+                    .map(|b| alloc::format!("{:#x?}", b))
+                    .collect::<alloc::vec::Vec<_>>()
+                    .join(", "),
+                &buffer[..]
+                    .iter()
+                    .map(|b| alloc::format!("{:#x?}", b))
+                    .collect::<alloc::vec::Vec<_>>()
+                    .join(", "),
+            );
 
-        Ok(buffer)
-    }}
+            Ok(buffer)
+        }
+    }
 
     /// Writes a command to the sensor.
     ///
@@ -135,7 +137,7 @@ where
     ) -> impl core::future::Future<Output = Result<(), Error<I2C::Error>>> + 'a {
         async move {
             let address = self.address();
-    
+
             #[cfg(feature = "log")]
             log::trace!(
                 "Writing to bus {{address: {:#x?}, command: {:?}[{}]}}",
@@ -148,10 +150,14 @@ where
                     .collect::<alloc::vec::Vec<_>>()
                     .join(", "),
             );
-            
-            sensirion_i2c::i2c_async::write_command_u16(&mut self.i2c(), address, Into::<u16>::into(command))
-                .await
-                .map_err(sensirion_i2c::i2c::Error::<I2C>::I2cWrite)?;
+
+            sensirion_i2c::i2c_async::write_command_u16(
+                &mut self.i2c(),
+                address,
+                Into::<u16>::into(command),
+            )
+            .await
+            .map_err(sensirion_i2c::i2c::Error::<I2C>::I2cWrite)?;
             Ok(())
         }
     }
@@ -172,57 +178,59 @@ where
         &'a mut self,
         command: T,
         args: Option<&'a [u16]>,
-    ) -> impl core::future::Future<Output = Result<(), Error<I2C::Error>>> + 'a {async move {
-        let mut buffer = BytesMut::with_capacity(8);
-        let address = self.address();
+    ) -> impl core::future::Future<Output = Result<(), Error<I2C::Error>>> + 'a {
+        async move {
+            let mut buffer = BytesMut::with_capacity(8);
+            let address = self.address();
 
-        buffer.put_u16(command.into());
-        if let Some(args) = args {
-            args.iter().for_each(|arg| {
-                buffer.put_u16(*arg);
-                buffer.put_u8(sensirion_i2c::crc8::calculate(&(*arg).to_be_bytes()[..]))
-            });
+            buffer.put_u16(command.into());
+            if let Some(args) = args {
+                args.iter().for_each(|arg| {
+                    buffer.put_u16(*arg);
+                    buffer.put_u8(sensirion_i2c::crc8::calculate(&(*arg).to_be_bytes()[..]))
+                });
 
-            #[cfg(feature = "log")]
-            log::trace!(
-                "Writing to bus {{address: {:#x?}, command: {:?}[{}], args: [{}]}}",
-                self.address(),
-                command,
-                Into::<u16>::into(command)
-                    .to_be_bytes()
-                    .iter()
-                    .map(|b| alloc::format!("{:#x?}", b))
-                    .collect::<alloc::vec::Vec<_>>()
-                    .join(", "),
-                &buffer[2..]
-                    .iter()
-                    .map(|b| alloc::format!("{:#x?}", b))
-                    .collect::<alloc::vec::Vec<_>>()
-                    .join(", "),
-            );
-        } else {
-            #[cfg(feature = "log")]
-            log::trace!(
-                "Writing to bus {{address: {:#x?}, command: {:?}[{}]}}",
-                self.address(),
-                command,
-                Into::<u16>::into(command)
-                    .to_be_bytes()
-                    .iter()
-                    .map(|b| alloc::format!("{:#x?}", b))
-                    .collect::<alloc::vec::Vec<_>>()
-                    .join(", "),
-            );
+                #[cfg(feature = "log")]
+                log::trace!(
+                    "Writing to bus {{address: {:#x?}, command: {:?}[{}], args: [{}]}}",
+                    self.address(),
+                    command,
+                    Into::<u16>::into(command)
+                        .to_be_bytes()
+                        .iter()
+                        .map(|b| alloc::format!("{:#x?}", b))
+                        .collect::<alloc::vec::Vec<_>>()
+                        .join(", "),
+                    &buffer[2..]
+                        .iter()
+                        .map(|b| alloc::format!("{:#x?}", b))
+                        .collect::<alloc::vec::Vec<_>>()
+                        .join(", "),
+                );
+            } else {
+                #[cfg(feature = "log")]
+                log::trace!(
+                    "Writing to bus {{address: {:#x?}, command: {:?}[{}]}}",
+                    self.address(),
+                    command,
+                    Into::<u16>::into(command)
+                        .to_be_bytes()
+                        .iter()
+                        .map(|b| alloc::format!("{:#x?}", b))
+                        .collect::<alloc::vec::Vec<_>>()
+                        .join(", "),
+                );
+            }
+
+            self.i2c()
+                .write(address, &buffer[..])
+                .await
+                .map_err(sensirion_i2c::i2c::Error::<I2C>::I2cWrite)?;
+
+            Ok(())
         }
-
-        self.i2c()
-            .write(address, &buffer[..])
-            .await
-            .map_err(sensirion_i2c::i2c::Error::<I2C>::I2cWrite)?;
-
-        Ok(())
     }
-}}
+}
 
 #[cfg(test)]
 mod tests {
