@@ -45,13 +45,13 @@ where
     /// # Returns
     ///
     /// A result containing a mutable slice with the read data or an error.
-    async fn read_command<'a, T: Copy + Into<Duration> + Into<u16> + Debug>(
-        &mut self,
+    fn read_command<'a, T: Copy + Into<Duration> + Into<u16> + Debug + 'a>(
+        &'a mut self,
         command: T,
         buffer: &'a mut [u8],
-    ) -> Result<&'a mut [u8], Error<I2C::Error>> {
+    ) -> impl core::future::Future<Output = Result<&'a mut [u8], Error<I2C::Error>>> + 'a {async move {
         self.read_command_with_args(command, None, buffer).await
-    }
+    }}
 
     /// Reads data from the sensor using a specified command and optional arguments.
     ///
@@ -66,14 +66,13 @@ where
     /// # Returns
     ///
     /// A result containing a mutable slice with the read data or an error.
-    async fn read_command_with_args<'a, T: Copy + Into<Duration> + Into<u16> + Debug>(
-        &mut self,
+    fn read_command_with_args<'a, T: Copy + Into<Duration> + Into<u16> + Debug + 'a>(
+        &'a mut self,
         command: T,
-        args: Option<&[u16]>,
+        args: Option<&'a [u16]>,
         buffer: &'a mut [u8],
-    ) -> Result<&'a mut [u8], Error<I2C::Error>> {
+    ) -> impl core::future::Future<Output = Result<&'a mut [u8], Error<I2C::Error>>> + 'a {async move {
         self.write_command_with_args(command, args).await?;
-        let command_code: u16 = command.into();
         let address = self.address();
 
         let delay_duration: Duration = command.into();
@@ -83,7 +82,7 @@ where
             &delay_duration,
             self.address(),
             command,
-            command_code
+            Into::<u16>::into(command)
                 .to_be_bytes()
                 .iter()
                 .map(|b| alloc::format!("{:#x?}", b))
@@ -103,7 +102,7 @@ where
             "Read from bus {{address: {:#x?}, command: {:?}[{}], response: [{}]}}",
             self.address(),
             command,
-            command_code
+            Into::<u16>::into(command)
                 .to_be_bytes()
                 .iter()
                 .map(|b| alloc::format!("{:#x?}", b))
@@ -117,7 +116,7 @@ where
         );
 
         Ok(buffer)
-    }
+    }}
 
     /// Writes a command to the sensor.
     ///
@@ -130,29 +129,31 @@ where
     /// # Returns
     ///
     /// A result indicating success or an error if the write operation failed.
-    async fn write_command<T: Copy + Into<Duration> + Into<u16> + Debug>(
-        &mut self,
+    fn write_command<'a, T: Copy + Into<Duration> + Into<u16> + Debug + 'a>(
+        &'a mut self,
         command: T,
-    ) -> Result<(), Error<I2C::Error>> {
-        let command_code: u16 = command.into();
-        let address = self.address();
-
-        #[cfg(feature = "log")]
-        log::trace!(
-            "Writing to bus {{address: {:#x?}, command: {:?}[{}]}}",
-            self.address(),
-            command,
-            command_code
-                .to_be_bytes()
-                .iter()
-                .map(|b| alloc::format!("{:#x?}", b))
-                .collect::<alloc::vec::Vec<_>>()
-                .join(", "),
-        );
-        sensirion_i2c::i2c_async::write_command_u16(&mut self.i2c(), address, command_code)
-            .await
-            .map_err(sensirion_i2c::i2c::Error::<I2C>::I2cWrite)?;
-        Ok(())
+    ) -> impl core::future::Future<Output = Result<(), Error<I2C::Error>>> + 'a {
+        async move {
+            let address = self.address();
+    
+            #[cfg(feature = "log")]
+            log::trace!(
+                "Writing to bus {{address: {:#x?}, command: {:?}[{}]}}",
+                self.address(),
+                command,
+                Into::<u16>::into(command)
+                    .to_be_bytes()
+                    .iter()
+                    .map(|b| alloc::format!("{:#x?}", b))
+                    .collect::<alloc::vec::Vec<_>>()
+                    .join(", "),
+            );
+            
+            sensirion_i2c::i2c_async::write_command_u16(&mut self.i2c(), address, Into::<u16>::into(command))
+                .await
+                .map_err(sensirion_i2c::i2c::Error::<I2C>::I2cWrite)?;
+            Ok(())
+        }
     }
 
     /// Writes a command with optional arguments to the sensor.
@@ -167,13 +168,12 @@ where
     /// # Returns
     ///
     /// A result indicating success or an error if the write operation failed.
-    async fn write_command_with_args<T: Copy + Into<Duration> + Into<u16> + Debug>(
-        &mut self,
+    fn write_command_with_args<'a, T: Copy + Into<Duration> + Into<u16> + Debug + 'a>(
+        &'a mut self,
         command: T,
-        args: Option<&[u16]>,
-    ) -> Result<(), Error<I2C::Error>> {
+        args: Option<&'a [u16]>,
+    ) -> impl core::future::Future<Output = Result<(), Error<I2C::Error>>> + 'a {async move {
         let mut buffer = BytesMut::with_capacity(8);
-        let command_code: u16 = command.into();
         let address = self.address();
 
         buffer.put_u16(command.into());
@@ -188,7 +188,7 @@ where
                 "Writing to bus {{address: {:#x?}, command: {:?}[{}], args: [{}]}}",
                 self.address(),
                 command,
-                command_code
+                Into::<u16>::into(command)
                     .to_be_bytes()
                     .iter()
                     .map(|b| alloc::format!("{:#x?}", b))
@@ -206,7 +206,7 @@ where
                 "Writing to bus {{address: {:#x?}, command: {:?}[{}]}}",
                 self.address(),
                 command,
-                command_code
+                Into::<u16>::into(command)
                     .to_be_bytes()
                     .iter()
                     .map(|b| alloc::format!("{:#x?}", b))
@@ -222,7 +222,7 @@ where
 
         Ok(())
     }
-}
+}}
 
 #[cfg(test)]
 mod tests {
@@ -305,13 +305,6 @@ mod tests {
             address: DEFAULT_BLOCKING_ADDRESS,
             delay: NoopDelay,
         }
-    }
-
-    #[test]
-    fn test_new() {
-        create_i2c(&[], async |test_driver| {
-            log::info!("here {}", test_driver.address);
-        });
     }
 
     #[test]

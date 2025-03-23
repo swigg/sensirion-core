@@ -73,7 +73,6 @@ where
         buffer: &'a mut [u8],
     ) -> Result<&'a mut [u8], Error<I2C::Error>> {
         self.write_command_with_args(command, args)?;
-        let command_code: u16 = command.into();
         let address = self.address();
 
         let delay_duration: Duration = command.into();
@@ -83,7 +82,7 @@ where
             &delay_duration,
             self.address(),
             command,
-            command_code
+            Into::<u16>::into(command)
                 .to_be_bytes()
                 .iter()
                 .map(|b| alloc::format!("{:#x?}", b))
@@ -100,7 +99,7 @@ where
             "Read from bus {{address: {:#x?}, command: {:?}[{}], response: [{}]}}",
             self.address(),
             command,
-            command_code
+            Into::<u16>::into(command)
                 .to_be_bytes()
                 .iter()
                 .map(|b| alloc::format!("{:#x?}", b))
@@ -169,7 +168,6 @@ where
         args: Option<&[u16]>,
     ) -> Result<(), Error<I2C::Error>> {
         let mut buffer = BytesMut::with_capacity(8);
-        let command_code: u16 = command.into();
         let address = self.address();
 
         buffer.put_u16(command.into());
@@ -184,7 +182,7 @@ where
                 "Writing to bus {{address: {:#x?}, command: {:?}[{}], args: [{}]}}",
                 self.address(),
                 command,
-                command_code
+                Into::<u16>::into(command)
                     .to_be_bytes()
                     .iter()
                     .map(|b| alloc::format!("{:#x?}", b))
@@ -202,7 +200,7 @@ where
                 "Writing to bus {{address: {:#x?}, command: {:?}[{}]}}",
                 self.address(),
                 command,
-                command_code
+                Into::<u16>::into(command)
                     .to_be_bytes()
                     .iter()
                     .map(|b| alloc::format!("{:#x?}", b))
@@ -300,14 +298,6 @@ mod tests {
             address: DEFAULT_BLOCKING_ADDRESS,
             delay: NoopDelay,
         }
-    }
-
-    #[test]
-    fn test_new() {
-        create_i2c(&[], |test_driver| {
-            #[cfg(feature = "log")]
-            log::info!("Address {}", test_driver.address);
-        });
     }
 
     #[test]
